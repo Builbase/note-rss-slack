@@ -71,3 +71,38 @@ def post_to_slack(webhook_url: str, item: dict) -> None:
 def main() -> None:
     rss_url = os.environ.get("NOTE_RSS_URL")
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    if not rss_url or not webhook_url:
+        sys.exit("環境変数 NOTE_RSS_URL / SLACK_WEBHOOK_URL を設定してください")
+
+    items = parse_items(fetch_rss(rss_url))
+    if not items:
+        print("フィードに記事がありません")
+        return
+
+    seen = load_state()
+
+    # 初回実行: 全記事を既読登録のみ(投稿しない)
+    if not seen:
+        save_state([i["guid"] for i in reversed(items)])
+        print(f"初回実行: {len(items)} 件を既読として登録しました(投稿なし)")
+        return
+
+    seen_set = set(seen)
+    new_items = [i for i in items if i["guid"] not in seen_set]
+
+    if not new_items:
+        print("新着なし")
+        return
+
+    # 古い記事から順に投稿(時系列を保つ)
+    for item in reversed(new_items):
+        post_to_slack(webhook_url, item)
+        seen.append(item["guid"])
+        print(f"投稿: {item['title']}")
+
+    save_state(seen)
+    print(f"{len(new_items)} 件を投稿しました")
+
+
+if __name__ == "__main__":
+    main()
