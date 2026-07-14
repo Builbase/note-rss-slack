@@ -55,7 +55,7 @@ def save_state(guids: list[str]) -> None:
 
 def post_to_slack(webhook_url: str, item: dict) -> None:
     payload = {
-        "text": f"📝 noteに新着記事が公開されました\n*<{item['link']}|{item['title']}>*"
+        "text": f"大津留です。今回も新しい記事ができました！\n必ずみて下さい！\n*<{item['link']}|{item['title']}>*"
     }
     req = urllib.request.Request(
         webhook_url,
