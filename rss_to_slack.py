@@ -70,4 +70,4 @@ def post_to_slack(webhook_url: str, item: dict) -> None:
 
 def main() -> None:
     rss_url = os.environ.get("NOTE_RSS_URL")
-    webhook_url = os.environ.get("SLACK_WEBH
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
