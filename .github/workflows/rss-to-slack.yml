@@ -1,9 +1,14 @@
-name: note RSS to Slack
+name: note RSS to Slack / X
 
 on:
   schedule:
     - cron: "*/15 * * * *"  # 15分毎(実際は数分〜十数分遅延することあり)
-  workflow_dispatch: {}      # 手動実行(動作確認・障害時の再実行用)
+  workflow_dispatch:
+    inputs:
+      x_dry_run:
+        description: "X には投稿せず、投稿予定の本文をログに出すだけにする"
+        type: boolean
+        default: false
 
 permissions:
   contents: write  # 既読状態ファイルをコミットするために必要
@@ -16,7 +21,11 @@ jobs:
   check-and-post:
     runs-on: ubuntu-latest
     steps:
+      # ref を明示しないと、concurrency で待機した run が起動時点の古い SHA を取得し、
+      # 先行 run が更新した既読状態を見落として同じ記事を再投稿する
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: RSSをチェックしてSlackに投稿
         env:
@@ -24,12 +33,35 @@ jobs:
           NOTE_RSS_URL: ${{ vars.NOTE_RSS_URL }}
         run: python3 rss_to_slack.py
 
+      # X 側で失敗しても Slack 通知は止めない(既存の運用を壊さないため)。
+      # 失敗はジョブのログに残り、ステップに警告が付く
+      - name: RSSをチェックしてXに投稿
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          NOTE_RSS_URL: ${{ vars.NOTE_RSS_URL }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          X_POST_TEMPLATE: ${{ vars.X_POST_TEMPLATE }}
+          X_DRY_RUN: ${{ inputs.x_dry_run && '1' || '' }}
+        run: python3 rss_to_x.py
+
       - name: 既読状態をコミット
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet seen_guids.json 2>/dev/null || [ -n "$(git status --porcelain seen_guids.json)" ]; then
-            git add seen_guids.json
+          # X ステップが失敗して seen_x.json が未作成でも、Slack 側の既読は必ず保存する。
+          # 存在しないパスを git add に渡すと exit 128 でステップごと落ちるため、実在するものだけ集める
+          CHANGED=""
+          for f in seen_guids.json seen_x.json; do
+            if [ -f "$f" ] && [ -n "$(git status --porcelain -- "$f")" ]; then
+              CHANGED="$CHANGED $f"
+            fi
+          done
+          if [ -n "$CHANGED" ]; then
+            git add $CHANGED
             git commit -m "chore: 既読GUIDを更新 [skip ci]"
             git pull --rebase origin ${{ github.ref_name }}
             git push
