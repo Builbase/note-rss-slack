@@ -12,6 +12,9 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
 
+      - name: 検証用ライブラリを導入
+        run: pip install --quiet requests requests-oauthlib
+
       - name: 認証情報の形式と疎通を確認
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}

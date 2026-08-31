@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -72,6 +73,52 @@ def main() -> None:
     print("\n=== 認証のみの検証(GET /2/users/me・書き込み権限は不要) ===")
     for host in ("api.x.com", "api.twitter.com"):
         probe(host, creds)
+
+    # Consumer Key/Secret だけで Bearer Token を取得できるか。
+    # これが通れば Consumer 側は有効で、問題は Access Token 側に絞られる
+    print("\n=== Consumer Key/Secret 単独の検証(App-only 認証) ===")
+    import base64 as _b64
+    basic = _b64.b64encode(
+        f"{urllib.parse.quote(creds['api_key'], safe='')}:"
+        f"{urllib.parse.quote(creds['api_secret'], safe='')}".encode()
+    ).decode()
+    req = urllib.request.Request(
+        "https://api.x.com/oauth2/token",
+        data=b"grant_type=client_credentials",
+        headers={
+            "Authorization": f"Basic {basic}",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            got = json.loads(res.read())
+            print(f"  HTTP {res.status} OK -> Bearer Token 取得成功"
+                  f"(長さ{len(got.get('access_token',''))}) = Consumer Key/Secret は有効")
+    except urllib.error.HTTPError as e:
+        print(f"  HTTP {e.code} -> {e.read().decode('utf-8','replace')[:200]}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  例外 {type(e).__name__}: {e}")
+
+    # 外部ライブラリでも同じ結果になるか。自作署名の不具合かを切り分ける
+    print("\n=== 外部ライブラリ(requests-oauthlib)での検証 ===")
+    try:
+        import requests
+        from requests_oauthlib import OAuth1
+        auth = OAuth1(
+            creds["api_key"], creds["api_secret"],
+            creds["access_token"], creds["access_token_secret"],
+            signature_type="auth_header",
+        )
+        r = requests.get("https://api.x.com/2/users/me", auth=auth, timeout=30)
+        print(f"  HTTP {r.status_code} -> {r.text[:200]}")
+        if r.status_code == 200:
+            print("  ※ライブラリでは通った = 自作の署名処理に不具合がある")
+        else:
+            print("  ※ライブラリでも同じ = キーまたはアプリ設定側の問題")
+    except ImportError:
+        print("  requests-oauthlib が未インストールのためスキップ")
 
 
 if __name__ == "__main__":
